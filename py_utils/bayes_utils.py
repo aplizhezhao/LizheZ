@@ -13,16 +13,13 @@ class BayesSampler:
     def __init__(self):
         self.flags = None
         self.segs = None
-        self.filter_id = None
     
     def filter_data(self, df, group_col:str, target_col:str, agg_func:str, q1, q2, k, hist2filter, test2filter):
         df_agg = df.groupby(group_col, as_index=False)[target_col].agg(agg_func)
         q1, q2 = np.percentile(df_agg[target_col], [q1, q2])
         iqr = q2 - q1
         lower, upper = q1 - k * iqr, q2 + k * iqr
-        filtered_id = df_agg.loc[(df_agg[target_col] >= lower) & (df_agg[target_col] <= upper)][group_col]
-        filtered_df = df[df[group_col].isin(filtered_id)]
-        self.filter_id = filtered_id
+        filter_id = df_agg.loc[(df_agg[target_col] >= lower) & (df_agg[target_col] <= upper)][group_col]
         hist = hist2filter[hist2filter.zip.isin(filter_id)]
         test = test2filter[test2filter.zip.isin(filter_id)]
         return hist, test
@@ -194,19 +191,23 @@ class BayesSampler:
             trace = pm.sample(2000, tune=1000, return_inferencedata=True, target_accept=0.95)
         return az.summary(trace, kind='stats')
         
-    def plot_res(self, res):
+    def plot(self, res, seg):
+        if not res.seg[0]:
+            x=0
+        else:
+            x=res.seg
         fig, ax = plt.subplots()
-        plt.scatter(x=res.seg, y=res.hist_mean, marker='o', color='C0')
-        plt.scatter(x=res.seg, y=res.hist_mean+res.hist_sd, marker='_', color='C0')
-        plt.scatter(x=res.seg, y=res.hist_mean-res.hist_sd, marker='_', color='C0')
-        plt.scatter(x=res.seg, y=res.test_mean, marker='x', color='C1')
+        plt.scatter(x, y=res.hist_mean, marker='o', color='C0')
+        plt.scatter(x, y=res.hist_mean+res.hist_sd, marker='_', color='C0')
+        plt.scatter(x, y=res.hist_mean-res.hist_sd, marker='_', color='C0')
+        plt.scatter(x, y=res.test_mean, marker='x', color='C1')
         plt.ylim(-0.06, 0.06)
         plt.grid()
-        title = f'result by {self.seg}'
+        title = f'result by {seg}'
         plt.title(title)
         #plt.savefig(f'C:/Users/Lizhe.Zhao/Documents/Notes/VISA/pics/results/{title}.png')
     
-    def read_processed_and_calc_result(self, file_hist, file_test, seg):
+    def read_processed_and_calc_result(self, file_hist, file_test, seg, file):
         # read data
         hist = self.read_data(file_hist)
         test = self.read_data(file_test)
@@ -216,4 +217,5 @@ class BayesSampler:
         else:
             hist_by_time_diff, test_by_time_diff = self.calc_diff_log_no_zip(hist, test, seg)
             res = self.result_calc_no_zip(hist_by_time_diff, test_by_time_diff)
+        res.to_csv(file)
         return res
