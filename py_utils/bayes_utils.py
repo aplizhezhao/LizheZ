@@ -195,16 +195,17 @@ class BayesSampler:
         if not res.seg[0]:
             x=0
         else:
-            x=res.seg
+            x=[list(x) for x in res.seg]
         fig, ax = plt.subplots()
-        plt.scatter(x, y=res.hist_mean, marker='o', color='C0')
-        plt.scatter(x, y=res.hist_mean+res.hist_sd, marker='_', color='C0')
-        plt.scatter(x, y=res.hist_mean-res.hist_sd, marker='_', color='C0')
-        plt.scatter(x, y=res.test_mean, marker='x', color='C1')
+        plt.scatter(res.index, y=res.hist_mean, marker='o', color='C0')
+        plt.scatter(res.index, y=res.hist_mean+res.hist_sd, marker='_', color='C0')
+        plt.scatter(res.index, y=res.hist_mean-res.hist_sd, marker='_', color='C0')
+        plt.scatter(res.index, y=res.test_mean, marker='x', color='C1')
         plt.ylim(-0.06, 0.06)
         plt.grid()
         title = f'result by {seg}'
         plt.title(title)
+        plt.xticks(ticks=res.index, labels=x)
         #plt.savefig(f'C:/Users/Lizhe.Zhao/Documents/Notes/VISA/pics/results/{title}.png')
     
     def read_processed_and_calc_result(self, file_hist, file_test, seg, file):
