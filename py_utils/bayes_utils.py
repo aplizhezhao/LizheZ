@@ -26,7 +26,7 @@ class BayesSampler:
     
     def _preprocess(self, df, seg:list, group_col:list, index_col:str, period:int, file:str):
         agg_df = df.groupby(seg+group_col).agg({'pv': 'sum', 'year':'first', 'week':'first'})
-        flags = agg_df.index.to_series().str[:len(seg)-1].unique()
+        flags = agg_df.index.to_series().str[:len([x for x in seg if x!='zip'])].unique()
         self.flags = flags
         total_index = agg_df.index.get_level_values((seg+group_col).index(index_col)).unique()
         res = pd.DataFrame()
@@ -53,6 +53,7 @@ class BayesSampler:
                     new_sliced['start_date'] = total_index[i]
                     new_sliced['end_date'] = total_index[i+2*period-1]
                     res = pd.concat([res, new_sliced])
+        return res
         res = res.drop(columns=['year_x', 'week_x', 'year_y', 'week_y'])
         res = res.reset_index(drop=False)
         res.to_csv(file)
@@ -141,6 +142,20 @@ class BayesSampler:
         test_by_time_diff['dof'] = test_by_time_diff['count_zip_test']+test_by_time_diff['count_zip_ctrl']
 
         return hist_by_time_diff, test_by_time_diff
+    
+    def calc_diff_no_zip(self, hist, test, seg):
+        hist_by_time = hist.groupby(['test_ctrl']+seg+['start_year', 'start_week', 'end_year', 'end_week' ]).agg({'lift': 'mean'})#, 'std_log_lift': 'first', 'count_zip': 'first'})
+        hist_by_time_test = hist_by_time.loc['test']
+        hist_by_time_ctrl = hist_by_time.loc['ctrl']
+        hist_by_time_diff = hist_by_time_test.merge(hist_by_time_ctrl, right_index=True, left_index=True, suffixes=('_test', '_ctrl'))
+        hist_by_time_diff['diff_lift'] = hist_by_time_diff['lift_test']/hist_by_time_diff['lift_ctrl']
+
+        test_by_time = test.groupby(['test_ctrl']+seg+['start_year', 'start_week', 'end_year', 'end_week' ]).agg({'lift': 'mean'})
+        test_by_time_test = test_by_time.loc['test']
+        test_by_time_ctrl = test_by_time.loc['ctrl']
+        test_by_time_diff = test_by_time_test.merge(test_by_time_ctrl, right_index=True, left_index=True, suffixes=('_test', '_ctrl'))
+        test_by_time_diff['diff_lift'] =test_by_time_diff['lift_test']/test_by_time_diff['lift_ctrl']
+        return hist_by_time_diff, test_by_time_diff
         
         
     def result_calc_no_zip(self, hist_by_time_diff, test_by_time_diff):
@@ -152,6 +167,22 @@ class BayesSampler:
             city_hml_hist_posterior = self.find_model_posterior(city_hml_hist['diff_log_lift'])
             city_hml_hist_mean, city_hml_hist_sd = city_hml_hist_posterior.loc['mu', 'mean'], city_hml_hist_posterior.loc['sd', 'mean']
             city_hml_test_mean = test_by_time_diff.loc[flag]['diff_log_lift'].values[0]
+            res['seg'].append(flag)
+            res['hist_mean'].append(city_hml_hist_mean)
+            res['hist_sd'].append(city_hml_hist_sd)
+            res['test_mean'].append(city_hml_test_mean)
+        res = pd.DataFrame(res)
+        return res
+    
+    def result_calc_no_zip_raw(self, hist_by_time_diff, test_by_time_diff):
+        flags = self.flags
+        res = {'seg':[], 'hist_mean':[], 'hist_sd':[], 'test_mean':[]}
+        for flag in flags:
+            city_hml_hist = hist_by_time_diff.loc[flag]
+            city_hml_test = test_by_time_diff.loc[flag]
+            city_hml_hist_posterior = self.find_model_posterior(city_hml_hist['diff_lift'])
+            city_hml_hist_mean, city_hml_hist_sd = city_hml_hist_posterior.loc['mu', 'mean'], city_hml_hist_posterior.loc['sd', 'mean']
+            city_hml_test_mean = test_by_time_diff.loc[flag]['diff_lift'].values[0]
             res['seg'].append(flag)
             res['hist_mean'].append(city_hml_hist_mean)
             res['hist_sd'].append(city_hml_hist_sd)
@@ -181,31 +212,33 @@ class BayesSampler:
         
         
     def find_model_posterior(self, data):
-        mu_prior = np.mean(data)
-        sd_prior = np.std(data)
+        mu_prior = 1
+        sd_prior = 0.01
         model = pm.Model()
         with model:
-            mu = pm.Normal("mu", mu=mu_prior, sigma=0.1)
-            sd = pm.Normal("sd", mu=sd_prior, sigma=0.1)
-            obs = pm.Normal("obs", mu=mu, sigma=sd, observed=data)
+            mu = pm.Normal("mu", mu=mu_prior, sigma=0.01)
+            #sd = pm.Normal("sd", mu=sd_prior, sigma=0.01)
+            #sd = pm.Uniform('sd', lower=0, upper=0.05)
+            sd = pm.Gamma('sd', alpha=1, beta=0.01) 
+            obs = pm.Normal("obs", mu=mu, sigma=(1/sd)**0.5, observed=data)
             trace = pm.sample(2000, tune=1000, return_inferencedata=True, target_accept=0.95)
         return az.summary(trace, kind='stats')
         
     def plot(self, res, seg):
         if not res.seg[0]:
-            x=0
+            x=['total']
         else:
             x=[list(x) for x in res.seg]
-        fig, ax = plt.subplots()
-        plt.scatter(res.index, y=res.hist_mean, marker='o', color='C0')
-        plt.scatter(res.index, y=res.hist_mean+res.hist_sd, marker='_', color='C0')
-        plt.scatter(res.index, y=res.hist_mean-res.hist_sd, marker='_', color='C0')
-        plt.scatter(res.index, y=res.test_mean, marker='x', color='C1')
-        plt.ylim(-0.06, 0.06)
+        #fig, ax = plt.subplots()
+        plt.scatter(res.index, y=res.hist_mean-1, marker='o', color='C0')
+        plt.scatter(res.index, y=res.hist_mean+res.hist_sd-1, marker='_', color='C0')
+        plt.scatter(res.index, y=res.hist_mean-res.hist_sd-1, marker='_', color='C0')
+        plt.scatter(res.index, y=res.test_mean-1, marker='x', color='C1')
+        #plt.ylim(-0.06, 0.06)
         plt.grid()
         title = f'result by {seg}'
         plt.title(title)
-        plt.xticks(ticks=res.index, labels=x)
+        plt.xticks(ticks=res.index.values, labels=x)
         #plt.savefig(f'C:/Users/Lizhe.Zhao/Documents/Notes/VISA/pics/results/{title}.png')
     
     def read_processed_and_calc_result(self, file_hist, file_test, seg, file):
