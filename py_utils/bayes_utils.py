@@ -98,7 +98,7 @@ class BayesSampler:
             hist_by_time_diff['diff_log_lift'] = np.log(hist_by_time_diff['lift_test']) - np.log(hist_by_time_diff['lift_ctrl'])
         return hist_by_time_diff
 
-    def result_calc_raw(self, hist_by_time_diff, test_by_time_diff):
+    def result_calc_raw(self, hist_by_time_diff, test_by_time_diff, file):
         if self.useLog:
             lift_col = 'diff_log_lift'
         else:
@@ -116,6 +116,8 @@ class BayesSampler:
             res['hist_sd'].append(city_hml_hist_sd)
             res['test_mean'].append(city_hml_test_mean)
         res = pd.DataFrame(res)
+        if file:
+            res.to_csv(file)
         return res
 
     def find_model_posterior(self, data):
@@ -164,11 +166,9 @@ class BayesSampler:
         test_diff = self.calc_diff(test)
 
         # simulation to find posterior
-        res = result_calc_raw(hist_diff, test_diff)
+        res = result_calc_raw(hist_diff, test_diff, res_file)
 
         # plot result
         self.plot(res)
 
-        if res_file:
-            res.to_csv(res_file)
         return res
